@@ -35,9 +35,11 @@ void setup() {
 
   bool haveCreds = provisionLoad();
   if (!haveCreds || forceConfig) {
-    // blocks; reboots the device on successful save
-    provisionRunPortal(300000UL);
-    provisionLoad();
+    // no creds (or reconfigure requested): the portal is the resting state.
+    // Blocks forever until the phone saves; save reboots the device.
+    provisionRunPortal(0);
+    // (only reachable on unexpected portal exit without save)
+    ESP.restart();
   }
 
   M5LcdSplash();
@@ -46,13 +48,10 @@ void setup() {
     MLOG("wifi joined: %s", WiFi.localIP().toString().c_str());
   } else {
     MLOG("wifi join FAILED (status %d) -> portal", WiFi.status());
-    // join failed (bad password / unreachable) — go back to the portal
-    M5LcdMessage("WiFi failed", "Opening setup portal...");
+    M5LcdMessage("WiFi failed", "Opening setup...");
     delay(1500);
-    provisionRunPortal(300000UL);   // blocks; reboots on save
-    provisionLoad();
-    M5LcdSplash();
-    wifiConnect();
+    provisionRunPortal(0);   // blocks forever until re-saved (then reboots)
+    ESP.restart();
   }
   netInit();
   lastPoll = 0;

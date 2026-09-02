@@ -447,16 +447,22 @@ def load_state():
 
 
 class Handler(BaseHTTPRequestHandler):
+    def end_headers(self):
+        self.send_header("Access-Control-Allow-Origin", "*")   # portal page cross-origin
+        super().end_headers()
+
     def do_GET(self):
         path = self.path.split("?")[0]
         if path == "/api/summary":
             payload = summary()
         elif path == "/api/health":
             payload = {"ok": True, "ts": int(time.time())}
+        elif path == "/api/host-info":
+            payload = {"ip": socket_lan_ip(), "port": PORT, "name": "ollama-meter"}
         else:
             payload = {"error": "not found"}
         code = 200 if path != "/x" else 404
-        if path not in ("/api/summary", "/api/health"):
+        if path not in ("/api/summary", "/api/health", "/api/host-info"):
             code = 404
         body = json.dumps(payload, default=str).encode()
         self.send_response(code)
@@ -470,21 +476,41 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def start_mdns_advertise():
-    """Advertise ollama-meter.local -> this Mac via macOS dns-sd (system binary).
+    """Advertise service 'ollama-meter' of type '_ollama-meter._tcp' via macOS
+    dns-sd (system binary) — matches the device's MDNS.queryService lookup.
     Subprocess lives as long as we do; failure is non-fatal."""
     try:
         subprocess.Popen(
-            ["/usr/bin/dns-sd", "-R", "ollama-meter", "_http._tcp", ".", str(PORT)],
+            ["/usr/bin/dns-sd", "-R", "ollama-meter", "_ollama-meter._tcp", ".", str(PORT)],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        print("advertising ollama-meter.local (mDNS)", flush=True)
+        print("advertising _ollama-meter._tcp (mDNS)", flush=True)
     except Exception as e:
         print("mDNS advertise failed (non-fatal):", e, flush=True)
+
+
+def bg_beacon_loop():
+    """UDP broadcast beacon: 'OLLAMA-METER <ip> <port>' every 3s on :8616.
+    Devices that can't use mDNS (mesh AP isolation) learn our IP from this."""
+    import socket as _s
+    sock = _s.socket(_s.AF_INET, _s.SOCK_DGRAM)
+    sock.setsockopt(_s.SOL_SOCKET, _s.SO_BROADCAST, 1)
+    ip = socket_lan_ip()
+    subnet_bc = ".".join(ip.split(".")[:3]) + ".255"
+    payload = f"OLLAMA-METER {ip} {PORT}".encode()
+    while True:
+        for dst in (subnet_bc, "255.255.255.255"):
+            try:
+                sock.sendto(payload, (dst, 8616))
+            except Exception:
+                pass
+        time.sleep(3)
 
 
 def main():
     load_state()
     start_mdns_advertise()
     threading.Thread(target=bg_tail_loop, daemon=True).start()
+    threading.Thread(target=bg_beacon_loop, daemon=True).start()
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     print(f"ollama-meter-companion listening on 0.0.0.0:{PORT} (LAN ip: {socket_lan_ip()})", flush=True)
     try:

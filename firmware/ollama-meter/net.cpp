@@ -3,6 +3,7 @@
 #include "config.h"
 #include "provision.h"
 #include <ESPmDNS.h>
+#include <WiFiUdp.h>
 #include <M5Unified.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
@@ -15,11 +16,17 @@
 // ---------------------------------------------------------------- wifi ----
 void wifiConnect() {
   WiFi.mode(WIFI_STA);
+  WiFi.disconnect();                       // clear any stale STA state
+  delay(100);
   WiFi.setSleep(false);
-  WiFi.begin(provSsid(), provPass());     // creds from NVS (provision.cpp)
+  MLOG("wifi begin: ssid=\"%s\" (pass len %d)", provSsid(), (int)strlen(provPass()));
+  WiFi.begin(provSsid(), provPass());
   uint32_t t0 = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - t0 < WIFI_TIMEOUT_MS) {
-    delay(120);
+  int last = -1;
+  while (WiFi.status() != WL_CONNECTED && millis() - t0 < 30000UL) {
+    int st = (int)WiFi.status();
+    if (st != last) { MLOG("wifi status %d (t=%lus)", st, (millis() - t0) / 1000); last = st; }
+    delay(200);
   }
 }
 
@@ -155,22 +162,50 @@ bool companionResolve(char *outHost, int outLen) {
     snprintf(outHost, outLen, "%s", s_host);
     return true;
   }
-  MLOG("mDNS: no companion found");
+  // 3) UDP beacon listen (companion broadcasts every 3s; mesh-safe)
+  static WiFiUDP udp;
+  static bool udpUp = false;
+  if (!udpUp) { udp.begin(8616); udpUp = true; }
+  uint32_t t0 = millis();
+  while (millis() - t0 < 4000) {
+    int sz = udp.parsePacket();
+    if (sz > 0) {
+      char pkt[64] = {};
+      int rd = udp.read(pkt, sizeof(pkt) - 1);
+      (void)rd;
+      if (strncmp(pkt, "OLLAMA-METER ", 13) == 0) {
+        char ip[48]; int bport;
+        if (sscanf(pkt + 13, "%47s %d", ip, &bport) == 2) {
+          snprintf(s_host, sizeof(s_host), "%s", ip);
+          s_port = (uint16_t)bport;
+          s_resolved = true;
+          MLOG("beacon found companion %s:%u", s_host, s_port);
+          snprintf(outHost, outLen, "%s", s_host);
+          return true;
+        }
+      }
+    }
+    delay(50);
+  }
+  MLOG("no companion found (mDNS+beacon)");
   return false;
 }
 
 // -------------------------------------------------------------- fetch ----
 static WiFiClient client;
+static int g_lastHttpCode = -1;
+int lastHttpCode() { return g_lastHttpCode; }
 
 static bool fetchUrl(const char *host, uint16_t port, const char *path,
                      char *buf, int bufLen) {
   HTTPClient http;
   char url[96];
   snprintf(url, sizeof(url), "http://%s:%u%s", host, port, path);
-  if (!http.begin(client, url)) return false;
+  if (!http.begin(client, url)) { g_lastHttpCode = -2; return false; }
   http.setTimeout(6000);
   http.setConnectTimeout(4000);
   int code = http.GET();
+  g_lastHttpCode = code;
   bool ok = false;
   if (code == 200) {
     String s = http.getString();
@@ -248,10 +283,14 @@ bool netFetch(MeterData &g) {
     return false;
   }
   if (!fetchUrl(host, port, SUMMARY_PATH, buf, sizeof(buf))) {
+    static int lastCode = -999;
+    int code = lastHttpCode();
+    if (code != lastCode) { MLOG("fetch FAIL http=%d from %s:%u", code, host, port); lastCode = code; }
     g.failCount++;
     if (g.failCount >= REBOOT_AFTER_FAILS) ESP.restart();
     return false;
   }
+  MLOG("fetch OK (%u bytes)", (unsigned)strlen(buf));
   g.failCount = 0;
   bool changed = true;
   if (g.valid && g.rawLen > 0 && strncmp(buf, g.raw, sizeof(buf)) == 0) {

@@ -84,8 +84,8 @@ button.mini{width:auto;margin:0;padding:8px 14px;font-size:14px;background:#2330
 <form onsubmit="return save(event)">
 <label>Password</label>
 <input id="pw" type="password" autocomplete="current-password">
-<label>Companion host (leave as is = auto-find your computer)</label>
-<input id="host" placeholder="auto (ollama-meter.local)">
+<label>Companion host (auto-fills if found; else type your computer's IP)</label>
+<input id="host" placeholder="auto (finding your computer...)">
 <button>Save &amp; connect</button></form>
 <div id="msg" style="margin-top:16px;min-height:22px"></div>
 <script>
@@ -127,7 +127,17 @@ async function save(e){e.preventDefault();
                          host:document.getElementById('host').value})});
   const j=await r.json();m.className=j.status=='ok'?'ok':'err';m.textContent=j.message;
   return false;}
+async function findCompanion(){
+  try{
+    const r=await fetch('http://ollama-meter.local:8615/api/host-info',{timeout:6000});
+    const j=await r.json();
+    if(j.ip){document.getElementById('host').value=j.ip;
+      document.getElementById('host').placeholder='found: '+j.ip;
+      document.getElementById('host').style.borderColor='#34c778';}
+  }catch(e){document.getElementById('host').placeholder='type your computer IP';}
+}
 doScan();
+findCompanion();
 </script></body></html>)HTML";
 
 // ----------------------------------------------------------- scan helpers ----
@@ -240,7 +250,9 @@ void provisionRunPortal(uint32_t timeoutMs) {
   M5LcdConfigScreen(apSsid, apIp.toString().c_str());
 
   uint32_t t0 = millis();
-  while (!haveSave && millis() - t0 < 300000UL) {
+  // timeoutMs == 0 -> run until saved (portal is the resting state when
+  // no creds exist; never fall through to a doomed WiFi join)
+  while (!haveSave && (timeoutMs == 0 || millis() - t0 < timeoutMs)) {
     dns.processNextRequest();
     server.handleClient();
     delay(10);

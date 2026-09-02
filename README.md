@@ -42,8 +42,9 @@ METER_COOKIES_JSON=/path/to/ollama-cookies.json python3 companion.py
 
 The companion:
 - serves the device on `http://<your-ip>:8615`
-- auto-registers itself on the network as **`ollama-meter.local`** (mDNS) —
-  the watch finds it automatically, you never type an IP
+- **broadcasts a UDP beacon** (`OLLAMA-METER <ip> <port>` on port 8616) every
+  3 seconds — the watch auto-discovers your computer, even across mesh APs
+  where mDNS fails (also advertises `ollama-meter.local` via mDNS as a bonus)
 - tails your local Ollama server (optional; works without it)
 
 ### 2. Getting the cookie
@@ -90,10 +91,19 @@ esptool --chip esp32s3 -p /dev/cu.usbmodemXXXX -b 460800 \
 First boot: the watch becomes its own access point and shows setup on screen.
 1. Join **`M5Meter-XXXX`** on your phone (it pops the setup page, or open `http://192.168.4.1`)
 2. Pick your WiFi from the list (**what the watch can actually see**), type the password
-3. Companion host: leave blank — the watch auto-finds `ollama-meter.local`
+3. Companion host: leave blank — the watch finds your computer via the UDP beacon
 4. Save. The watch reboots onto your WiFi and starts rendering live data.
 
 Change networks later: hold **BtnC** while booting.
+
+**Updating the firmware later:** flash the app only, preserving your WiFi:
+
+```bash
+esptool --chip esp32s3 -p /dev/cu.usbmodemXXXX -b 460800 \
+  write_flash --flash_mode dio 0x10000 .build/ollama-meter.ino.bin
+```
+
+(A full `merged.bin` flash at 0x0 is a factory reset — it wipes saved WiFi.)
 
 **Buttons:** A = force refresh · B = brightness · C = (hold at boot) setup
 

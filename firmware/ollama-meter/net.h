@@ -43,6 +43,7 @@ void wifiConnect();
 void netInit();
 bool netFetch(MeterData &d);
 bool companionResolve(char *outHost, int outLen);  // mDNS auto or NVS override
+int lastHttpCode();
 
 // helpers shared with ui
 long isoToEpoch(const char *iso);              // "2026-09-07T00:00:00Z" -> epoch; 0 fail
