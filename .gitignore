@@ -1,0 +1,25 @@
+# Build artifacts
+firmware/ollama-meter/.build/
+firmware/ollama-meter/.build-cache/
+firmware/ollama-meter/build/
+
+# Python
+__pycache__/
+*.pyc
+
+# Local state / secrets — NEVER commit
+companion/state.json
+companion/ollama-cookies.json
+*.har
+.env
+
+# Reference clones (upstream repos, not ours)
+reference-*/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Design scratch (keep locked design + hero though)
+design/tile-v*.png
+design/ui-contact-sheet-v*.png
