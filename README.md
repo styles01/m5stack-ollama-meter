@@ -4,7 +4,7 @@ Your Ollama limits, at a glance, on a gorgeous round AMOLED watch —
 **ollama.com cloud usage** (session + weekly) and **local server activity**
 live on your desk.
 
-![watch face](design/ollama-meter-live.png)
+<img src="design/ollama-meter-live.png" width="233" alt="Ollama usage meter — live watch face">
 
 Three rings, zero chrome:
 - **Outer ring (cyan)** — weekly usage %, big number matches
