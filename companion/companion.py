@@ -113,6 +113,48 @@ def cookie_header():
     return "; ".join(parts) if parts else None
 
 
+def fetch_usage_api():
+    """Official path: GET https://ollama.com/api/usage with
+    'Authorization: Bearer $OLLAMA_API_KEY' (API key from
+    ollama.com/settings/keys). Returns the same flat shape as
+    fetch_cloud_direct so downstream code is agnostic. No reset timestamps in
+    the response — computed from the globally-aligned 5h/7d windows."""
+    key = os.environ.get("OLLAMA_API_KEY")
+    if not key:
+        try:
+            with open(os.path.join(CC_DATA, "ollama-api-key.txt")) as f:
+                key = f.read().strip()
+        except Exception:
+            return None
+    req = urllib.request.Request(
+        "https://ollama.com/api/usage",
+        headers={"Authorization": f"Bearer {key}",
+                 "User-Agent": "ollama-meter-companion/1.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            d = json.loads(r.read().decode("utf-8", "replace"))
+    except Exception:
+        return None
+    limits = d.get("limits") or {}
+    sess = limits.get("session") or {}
+    week = limits.get("weekly") or {}
+    now = time.time()
+    out = {
+        "available": True,
+        "session_pct": round(sess["usage"] * 100, 1) if "usage" in sess else None,
+        "weekly_pct": round(week["usage"] * 100, 1) if "usage" in week else None,
+        "session_reset_at": _aligned_reset_iso(now, SESSION_WINDOW_S),
+        "weekly_reset_at": _aligned_reset_iso(now, 7 * 24 * 3600),
+        "_source": "usage-api",
+        "lastUpdated": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+    }
+    models = sess.get("models") or []
+    if models:
+        top = max(models, key=lambda m: m.get("request_count", 0))
+        out["top_models"] = [(top.get("name"), top.get("request_count", 0))]
+    return out
+
+
 def fetch_cloud_direct():
     """Direct HTTPS GET of ollama.com/settings using saved cookies. Parses the
     server-rendered usage numbers, reset timestamps and per-model requests.
@@ -169,6 +211,12 @@ def _iso_to_epoch(iso):
     import calendar
     t = time.strptime(iso[:19], "%Y-%m-%dT%H:%M:%S")
     return calendar.timegm(t)
+
+
+def _aligned_reset_iso(now_epoch, window_s):
+    """Next boundary of a globally-aligned window (5h session / 7d weekly)."""
+    nxt = (now_epoch // window_s + 1) * window_s
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(nxt))
 
 
 def normalize_cloud(cron_data, direct_data):
@@ -236,6 +284,13 @@ def cloud_payload():
     with LOCK:
         direct = STATE.get("cloud_direct")
         last_fetch = STATE.get("last_cloud_fetch", 0)
+    # PRIORITY 1: official usage API with an API key (no cookies needed).
+    # Not throttled — cheap authenticated JSON, and the rolling-window guard
+    # below keeps reset times honest.
+    api = fetch_usage_api()
+    if api:
+        return normalize_cloud(None, api)
+    # PRIORITY 2/3: cookie scrape (direct) or stale cron JSON
     data, kind = load_cloud(CLOUD_STALE_S)
     # refresh direct fetch at most every CLOUD_DIRECT_REFRESH_S
     if (kind == "stale" or kind == "none") and time.time() - last_fetch > CLOUD_DIRECT_REFRESH_S:
