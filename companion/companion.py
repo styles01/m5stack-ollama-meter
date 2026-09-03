@@ -36,6 +36,7 @@ STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state.jso
 PORT = 8615
 SESSION_WINDOW_S = 5 * 3600       # ollama.com session window ≈5h (rolling)
 CLOUD_STALE_S = 2 * 3600          # cron JSON older than this -> try direct cookie fetch
+CLOUD_DIRECT_REFRESH_S = 120      # re-scrape ollama.com at most every 2 min
 CLOUD_HARD_STALE_S = 24 * 3600    # older than this -> mark stale to the device
 OLLAMA_BASE = "http://localhost:11434"
 HTTP_TIMEOUT = 4
@@ -161,6 +162,15 @@ def fetch_cloud_direct():
     return out if out.get("available") else None
 
 
+def _iso_to_epoch(iso):
+    """Parse '2026-09-03T04:00:00Z' as UTC and return a true epoch.
+    calendar.timegm treats the struct as UTC (unlike mktime, which applies
+    the local zone) — this is the correct conversion."""
+    import calendar
+    t = time.strptime(iso[:19], "%Y-%m-%dT%H:%M:%S")
+    return calendar.timegm(t)
+
+
 def normalize_cloud(cron_data, direct_data):
     """Merge cron JSON + direct-fetch into one flat shape for the device."""
     out = {
@@ -206,7 +216,7 @@ def normalize_cloud(cron_data, direct_data):
     # ollama resets are rolling, so remaining <= window)
     if out.get("session_reset_at"):
         try:
-            t = time.mktime(time.strptime(out["session_reset_at"][:19], "%Y-%m-%dT%H:%M:%S")) - time.timezone
+            t = _iso_to_epoch(out["session_reset_at"])
             remaining = max(0.0, t - time.time())
             win = SESSION_WINDOW_S
             out["session_elapsed_frac"] = round(max(0.0, min(1.0, 1.0 - remaining / win)), 3)
@@ -215,7 +225,7 @@ def normalize_cloud(cron_data, direct_data):
             pass
     if out.get("weekly_reset_at"):
         try:
-            t = time.mktime(time.strptime(out["weekly_reset_at"][:19], "%Y-%m-%dT%H:%M:%S")) - time.timezone
+            t = _iso_to_epoch(out["weekly_reset_at"])
             out["weekly_reset_min"] = int(max(0.0, t - time.time()) // 60)
         except Exception:
             pass
@@ -227,8 +237,8 @@ def cloud_payload():
         direct = STATE.get("cloud_direct")
         last_fetch = STATE.get("last_cloud_fetch", 0)
     data, kind = load_cloud(CLOUD_STALE_S)
-    # refresh direct fetch at most every 15 min
-    if (kind == "stale" or kind == "none") and time.time() - last_fetch > 900:
+    # refresh direct fetch at most every CLOUD_DIRECT_REFRESH_S
+    if (kind == "stale" or kind == "none") and time.time() - last_fetch > CLOUD_DIRECT_REFRESH_S:
         d = fetch_cloud_direct()
         with LOCK:
             STATE["last_cloud_fetch"] = time.time()
@@ -240,6 +250,23 @@ def cloud_payload():
                 STATE["cloud_direct"] = None
         if d:
             direct = d
+    # rolling window guard: if the cached session reset is already in the past,
+    # the window has rolled since we scraped -> cached numbers are WRONG.
+    # Drop them and force a fresh scrape right now (don't show a lie).
+    if direct and direct.get("session_reset_at"):
+        try:
+            t = _iso_to_epoch(direct["session_reset_at"])
+            if t - time.time() <= 0:
+                d2 = fetch_cloud_direct()
+                with LOCK:
+                    STATE["last_cloud_fetch"] = time.time()
+                    STATE["cloud_direct"] = d2
+                if d2:
+                    direct = d2
+                else:
+                    direct = None
+        except Exception:
+            pass
     return normalize_cloud(data, direct)
 
 
