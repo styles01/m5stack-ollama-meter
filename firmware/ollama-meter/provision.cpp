@@ -121,10 +121,11 @@ function render(list){
 async function save(e){e.preventDefault();
   const m=document.getElementById('msg');
   if(!chosen){m.className='err';m.textContent='tap a network first';return false;}
+  const body='ssid='+encodeURIComponent(chosen)
+            +'&pw='+encodeURIComponent(document.getElementById('pw').value)
+            +'&host='+encodeURIComponent(document.getElementById('host').value);
   const r=await fetch('/save',{method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({ssid:chosen,pw:document.getElementById('pw').value,
-                         host:document.getElementById('host').value})});
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
   const j=await r.json();m.className=j.status=='ok'?'ok':'err';m.textContent=j.message;
   return false;}
 async function findCompanion(){
@@ -212,19 +213,11 @@ void provisionRunPortal(uint32_t timeoutMs) {
     }
   });
   server.on("/save", HTTP_POST, [&]() {
-    String body = server.arg("plain");
-    String ssid, pw, host;
-    {
-      int a = body.indexOf("\"ssid\":\"") + 8;
-      int b = a > 7 ? body.indexOf("\"", a) : -1;
-      ssid = (b > a) ? body.substring(a, b) : "";
-      a = body.indexOf("\"pw\":\"") + 6;
-      b = a > 5 ? body.indexOf("\"", a) : -1;
-      pw = (b > a) ? body.substring(a, b) : "";
-      a = body.indexOf("\"host\":\"") + 8;
-      b = a > 7 ? body.indexOf("\"", a) : -1;
-      host = (b > a) ? body.substring(a, b) : "";
-    }
+    // form-encoded (WebServer decodes args) — survives quotes/backslashes in
+    // passwords and SSIDs, unlike the previous hand-rolled JSON parser
+    String ssid = server.arg("ssid");
+    String pw   = server.arg("pw");
+    String host = server.arg("host");
     if (ssid.length() == 0) {
       server.send(400, "application/json",
                   "{\"status\":\"err\",\"message\":\"tap a network first\"}");

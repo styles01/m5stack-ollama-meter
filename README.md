@@ -4,7 +4,7 @@ Your Ollama limits, at a glance, on a gorgeous round AMOLED watch —
 **ollama.com cloud usage** (session + weekly) and **local server activity**
 live on your desk.
 
-![watch face](design/tile-v7-hero.png)
+![watch face](design/ollama-meter-live.png)
 
 Three rings, zero chrome:
 - **Outer ring (cyan)** — weekly usage %, big number matches
@@ -12,15 +12,7 @@ Three rings, zero chrome:
   (green <70% · amber 70–90% · red ≥90%)
 - **Thin inner ring** — reset timer: fills as your session window elapses;
   the comet head marks "now" and completes exactly at reset
-- **Center** — live req/min, today's requests/generations, both reset countdowns
-
-> **TL;DR — M5Burner description (copy/paste ready):**
-> Put your Ollama usage on your wrist-side desk: session & weekly limits as
-> color-coded rings (green→amber→red), a reset comet that counts down your
-> window, and live local-server stats. Setup is phone-based (no cables, no
-> IP typing — the watch auto-discovers your computer). Requires one tiny
-> Python companion script on the computer that runs Ollama: see the README
-> "Setup" (2 minutes). Everything stays on your LAN — no cloud, no telemetry.
+- **Center** — top model, today's requests, battery level
 
 ## Requirements
 
@@ -42,6 +34,10 @@ Three rings, zero chrome:
 The watch is a dumb renderer; your computer does the scraping (a browser
 session cookie can't live on an ESP32). One small Python script, stdlib-only.
 
+The watch finds the companion automatically — the computer **broadcasts a UDP
+beacon** every 3 seconds that the watch listens for (works even on mesh
+routers where mDNS doesn't cross networks).
+
 ## Setup
 
 ### 1. Run the companion on your computer
@@ -53,10 +49,8 @@ METER_COOKIES_JSON=/path/to/ollama-cookies.json python3 companion.py
 ```
 
 The companion:
-- serves the device on `http://<your-ip>:8615`
-- **broadcasts a UDP beacon** (`OLLAMA-METER <ip> <port>` on port 8616) every
-  3 seconds — the watch auto-discovers your computer, even across mesh APs
-  where mDNS fails (also advertises `ollama-meter.local` via mDNS as a bonus)
+- serves the device on `http://<your-ip>:8615` (TCP) and broadcasts the
+  discovery beacon on UDP `8616`
 - tails your local Ollama server (optional; works without it)
 
 Firewall note: allow incoming **TCP 8615** and **UDP 8616** on your computer.
@@ -76,15 +70,15 @@ logged-in session cookie:
 ```
 
 The cookie lives on your computer only. The watch never sees it.
-Cookie expired? The device shows stale/unavailable cloud data; re-copy it.
+Cookie expired? The cloud rings fall back to `--` until you re-copy a fresh
+cookie (local server stats keep working).
 
 ### 3. Flash the firmware
 
 **Option A — M5Burner (easiest):**
 1. Open M5Burner → **ESPTool**
-2. Pick the firmware's `ollama-meter.ino.merged.bin` (or grab it from the
-   [M5Burner listing](https://github.com/styles01/m5stack-ollama-meter/releases))
-3. Write at offset **`0x0`** with dio / 80m / detect (the defaults)
+2. Write `ollama-meter.ino.merged.bin` at offset **`0x0`**
+3. dio / 80m / detect (the defaults)
 
 **Option B — esptool directly:**
 ```bash
@@ -111,8 +105,6 @@ First boot: the watch becomes its own access point and shows setup on screen.
 3. Companion host: leave blank — the watch finds your computer via the UDP beacon
 4. Save. The watch reboots onto your WiFi and starts rendering live data.
 
-Change networks later: hold **BtnC** while booting.
-
 **Updating the firmware later:** flash the app only, preserving your WiFi:
 
 ```bash
@@ -122,7 +114,30 @@ esptool --chip esp32s3 -p /dev/cu.usbmodemXXXX -b 460800 \
 
 (A full `merged.bin` flash at 0x0 is a factory reset — it wipes saved WiFi.)
 
-**Buttons:** A = force refresh · B = brightness · C = (hold at boot) setup
+**Buttons:**
+- **A** (click) — flip between the meter face and the system page
+- **A** (hold 2 s) — re-open WiFi setup
+- **B** — cycle screen brightness
+- **C** — power button (hardware; never used by the app)
+
+## Troubleshooting
+
+**Watch says "connecting..." forever** — the companion isn't reachable. Check
+it's running (`curl http://<computer-ip>:8615/api/health`) and that both
+devices are on the same WiFi.
+
+**Cloud rings show `--`** — your ollama.com cookie expired. Re-copy it
+(Setup step 2); local stats keep working meanwhile.
+
+**Setup page won't load** — forget the `M5Meter-XXXX` network on your phone,
+rejoin, and manually open `http://192.168.4.1`. If your computer runs a
+firewall, allow TCP 8615 / UDP 8616.
+
+**Black screen after flashing** — the PSRAM flag is missing. Use the exact
+FQBN from "Building from source" (`PSRAM=opi` is mandatory on this panel).
+
+**Wrong model name / no model** — the model comes from the ollama.com usage
+bars; it appears after the first successful cloud fetch.
 
 ## FAQ
 
@@ -133,11 +148,16 @@ your computer ↔ ollama.com with your cookie. No cloud, no telemetry.
 session cookies can't run on the ESP32. A small Python script on the computer
 you already run Ollama on solves it.
 
-**Windows/Linux?** The beacon-based discovery is pure Python sockets — works
-everywhere. Firmware builds on any OS with arduino-cli.
+**Token counts?** Not available — ollama.com exposes only usage percentages
+and per-model request counts. (A logging proxy is a possible future feature.)
 
-**Cookie expired?** The face keeps showing local server stats; cloud rings go
-grey/dash until you re-copy a fresh cookie.
+**Windows/Linux?** The beacon-based discovery is pure Python sockets — works
+everywhere. Firmware builds on any OS with arduino-cli. On Linux/Windows,
+point `METER_OLLAMA_LOG` at your server log if you want the local-activity
+stats (macOS default path is `~/.ollama/logs/server.log`).
+
+**Provisioning security?** The setup AP is open and unauthenticated — standard
+for captive portals, but don't run setup in a hostile space.
 
 ## License
 

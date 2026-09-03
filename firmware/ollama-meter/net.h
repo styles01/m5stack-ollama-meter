@@ -21,6 +21,8 @@ struct MeterData {
   int   sessionResetMin;             // minutes until session reset, -1 unknown
   int   weeklyResetMin;              // minutes until weekly reset, -1 unknown
   float sessionElapsedFrac;          // 0..1 elapsed toward session reset (comet)
+  char  topModel[24];                // highest-request model name, "" unknown
+  int   topModelReq;                 // its request count
   char  cloudSrc[16];
   int   cloudAgeS;
   // local
@@ -32,6 +34,9 @@ struct MeterData {
   // activity
   int todayReq, todayGen, todayErr;
   float reqPerMin;
+  // device
+  int batteryPct;                    // 0-100, -1 unknown
+  bool charging;
   // meta
   uint32_t fetchedMs;
   char raw[3072];

@@ -69,6 +69,9 @@ static JVal jfind(const char *from, const char *key) {
 static float jnum(const char *from, const char *key, float dflt) {
   JVal v = jfind(from, key);
   if (!v.found || v.isStr || v.len <= 0) return dflt;
+  // bare null/true/false are not numbers — return the default (degraded state)
+  if (strncmp(v.p, "null", v.len) == 0) return dflt;
+  if (strncmp(v.p, "true", v.len) == 0 || strncmp(v.p, "false", v.len) == 0) return dflt;
   char buf[32];
   int n = v.len < 31 ? v.len : 31;
   memcpy(buf, v.p, n); buf[n] = 0;
@@ -138,6 +141,7 @@ void netInit() {
 static char s_host[48] = "";
 static uint16_t s_port = 8615;
 static bool s_resolved = false;
+char g_companionHost[48] = "";   // last resolved companion host (for SYS page)
 
 bool companionResolve(char *outHost, int outLen) {
   if (s_resolved) { snprintf(outHost, outLen, "%s", s_host); return true; }
@@ -148,7 +152,8 @@ bool companionResolve(char *outHost, int outLen) {
     snprintf(outHost, outLen, "%s", s_host);
     return true;
   }
-  // 2) mDNS auto-discover
+  // 2) mDNS auto-discover — companion.py registers instance "ollama-meter"
+  // under standard _http._tcp (dns-sd -R). Match exactly.
   static MDNSResponder mdns;
   if (!MDNS.begin("meter-watch")) { MLOG("mdns begin failed"); return false; }
   int n = MDNS.queryService("ollama-meter", "http");
@@ -270,7 +275,25 @@ static bool parseSummary(const char *json, MeterData &d) {
   d.todayGen = (int)jnum(json, "generations", 0);
   d.todayErr = (int)jnum(json, "errors", 0);
   d.reqPerMin = jnum(json, "req_per_min", 0);
+  // battery (companion reads PMIC via i2c? no - device-side ADC handled in
+  // ollama-meter.ino; here just defaults)
+  d.batteryPct = -1;
+  d.charging = false;
+  // top model (cloud scrape)
+  {
+    char tm[24] = "";
+    jstr(json, "top_model", tm, sizeof(tm), "");
+    snprintf(d.topModel, sizeof(d.topModel), "%s", tm);
+    d.topModelReq = (int)jnum(json, "top_model_req", 0);
+  }
   return true;
+}
+
+// resolved companion host (for SYS page) — mirrors companionResolve state
+bool companionResolved(char *out, int n) {
+  extern char g_companionHost[48];
+  snprintf(out, n, "%s", g_companionHost[0] ? g_companionHost : "?");
+  return g_companionHost[0] != 0;
 }
 
 bool netFetch(MeterData &g) {
@@ -282,6 +305,8 @@ bool netFetch(MeterData &g) {
     if (g.failCount >= REBOOT_AFTER_FAILS) ESP.restart();
     return false;
   }
+  extern char g_companionHost[48];
+  snprintf(g_companionHost, sizeof(g_companionHost), "%s", host);
   if (!fetchUrl(host, port, SUMMARY_PATH, buf, sizeof(buf))) {
     static int lastCode = -999;
     int code = lastHttpCode();

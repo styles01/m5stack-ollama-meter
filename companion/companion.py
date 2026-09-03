@@ -198,6 +198,8 @@ def normalize_cloud(cron_data, direct_data):
             out["weekly_reset_at"] = direct_data["weekly_reset_at"]
         if direct_data.get("top_models"):
             out["top_models"] = direct_data["top_models"]
+            out["top_model"] = direct_data["top_models"][0][0]
+            out["top_model_req"] = direct_data["top_models"][0][1]
         out["age_s"] = 0
         out["source"] = "direct-cookie"
     # comet data: fraction of the session window elapsed (window=5h default;
@@ -232,6 +234,10 @@ def cloud_payload():
             STATE["last_cloud_fetch"] = time.time()
             if d:
                 STATE["cloud_direct"] = d
+            else:
+                # cookie expired / fetch failing: DROP the cached direct result
+                # so the device shows degraded '--' instead of frozen percentages
+                STATE["cloud_direct"] = None
         if d:
             direct = d
     return normalize_cloud(data, direct)
@@ -476,14 +482,15 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def start_mdns_advertise():
-    """Advertise service 'ollama-meter' of type '_ollama-meter._tcp' via macOS
-    dns-sd (system binary) — matches the device's MDNS.queryService lookup.
-    Subprocess lives as long as we do; failure is non-fatal."""
+    """Register service instance 'ollama-meter' under standard _http._tcp via
+    macOS dns-sd (system binary) — matches the device's MDNS.queryService
+    lookup. Also gives the portal page a resolvable ollama-meter.local
+    hostname via the SRV record. Subprocess lives as long as we do."""
     try:
         subprocess.Popen(
-            ["/usr/bin/dns-sd", "-R", "ollama-meter", "_ollama-meter._tcp", ".", str(PORT)],
+            ["/usr/bin/dns-sd", "-R", "ollama-meter", "_http._tcp", ".", str(PORT)],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        print("advertising _ollama-meter._tcp (mDNS)", flush=True)
+        print("advertising ollama-meter._http._tcp (mDNS)", flush=True)
     except Exception as e:
         print("mDNS advertise failed (non-fatal):", e, flush=True)
 
