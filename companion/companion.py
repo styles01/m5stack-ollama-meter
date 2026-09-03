@@ -259,7 +259,8 @@ def normalize_cloud(cron_data, direct_data):
             out["top_model"] = direct_data["top_models"][0][0]
             out["top_model_req"] = direct_data["top_models"][0][1]
         out["age_s"] = 0
-        out["source"] = "direct-cookie"
+        # label honestly: usage-api result vs cookie scrape
+        out["source"] = direct_data.get("_source", "direct-cookie")
     # comet data: fraction of the session window elapsed (window=5h default;
     # ollama resets are rolling, so remaining <= window)
     if out.get("session_reset_at"):
