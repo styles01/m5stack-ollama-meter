@@ -57,30 +57,28 @@ Firewall note: allow incoming **TCP 8615** and **UDP 8616** on your computer.
 
 ### 2. Connect your ollama.com account
 
-The companion reads your cloud usage (session/weekly limits, per-model
-requests). Two ways — use the first:
-
-**Option A — API key (recommended, no expiry):**
-1. Create a key at [ollama.com/settings/keys](https://ollama.com/settings/keys)
-2. Either export it before starting the companion:
+Create an **API key** (once, takes 30 seconds — it never expires):
+1. Go to [ollama.com/settings/keys](https://ollama.com/settings/keys) → create key
+2. Hand it to the companion, either way works:
    ```bash
-   OLLAMA_API_KEY=your_key python3 companion.py
-   ```
-   ...or save it to a one-line file and point the env var at its directory:
-   ```bash
-   echo "your_key" > ollama-api-key.txt
+   OLLAMA_API_KEY=your_key python3 companion.py        # env var
+   # or:  echo "your_key" > ollama-api-key.txt          # file next to the script
    ```
 
-**Option B — session cookie (fallback):**
-1. Log into [ollama.com/settings](https://ollama.com/settings) in Chrome
-2. DevTools (⌥⌘J) → Application → Cookies → `https://ollama.com`
-3. Copy the value of the `__Secure-session` cookie and create
-   `ollama-cookies.json`:
-   ```json
-   [{"name": "__Secure-session", "value": "PASTE_HERE"}]
-   ```
-   Then run with `METER_COOKIES_JSON=./ollama-cookies.json python3 companion.py`
-   (cookies expire; re-copy when the cloud rings show `--`).
+That's it — the companion polls the official `ollama.com/api/usage` endpoint
+with your key: session/weekly limits, per-model request counts, computed reset
+countdowns. No cookies, no scraping, no expiry.
+
+<details>
+<summary>Alternative: browser session cookie (legacy fallback)</summary>
+
+If you'd rather not create a key, the companion can scrape
+[ollama.com/settings](https://ollama.com/settings) with your browser session
+cookie: DevTools (⌥⌘J) → Application → Cookies → copy `__Secure-session`,
+save as `ollama-cookies.json` (`[{"name": "__Secure-session", "value": "PASTE_HERE"}]`),
+run with `METER_COOKIES_JSON=./ollama-cookies.json`. Cookies expire — expect
+to re-copy them.
+</details>
 
 Keys/cookies live on your computer only. The watch never sees them.
 
@@ -137,9 +135,8 @@ esptool --chip esp32s3 -p /dev/cu.usbmodemXXXX -b 460800 \
 it's running (`curl http://<computer-ip>:8615/api/health`) and that both
 devices are on the same WiFi.
 
-**Cloud rings show `--`** — no API key set AND your ollama.com cookie expired.
-Option A (API key) never expires — switch to it (Setup step 2); local stats
-keep working meanwhile.
+**Cloud rings show `--`** — no API key configured (Setup step 2) or the key
+was revoked. Create/refresh the key; local stats keep working meanwhile.
 
 **Setup page won't load** — forget the `M5Meter-XXXX` network on your phone,
 rejoin, and manually open `http://192.168.4.1`. If your computer runs a
