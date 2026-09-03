@@ -32,24 +32,16 @@ static const uint16_t C_TAIL2  = C_DIM;
 static const uint16_t C_TFILL  = RGB565(96,104,124);   // timer ring elapsed fill
 
 // geometry (DESIGN-LOCKED.md)
-static const int CX = 233 * SS, CY = 233 * SS;
-static const int R_WEEK_O = 400, R_WEEK_I = 376;
-static const int R_SESS_O = 360, R_SESS_I = 336;
-static const int R_TIME_O = 316, R_TIME_I = 304;
+static const int CX = 233, CY = 233;
+static const int R_WEEK_O = 200, R_WEEK_I = 188;
+static const int R_SESS_O = 180, R_SESS_I = 168;
+static const int R_TIME_O = 158, R_TIME_I = 152;
 static const float DEG_TO_RAD_F = 0.0174532925f;
 
-static M5Canvas canvas(&M5.Display);   // hi-res 2x supersample canvas
-static M5Canvas panel(&M5.Display);    // 466x466 push target (AA downscale)
+static M5Canvas canvas(&M5.Display);
 static bool canvasOk = false;
 static uint8_t g_page = 0;            // 0 = meter face, 1 = system
 static uint32_t g_pageAt = 0;
-
-// 2x supersampling: draw at 932x932, push with pushRotateZoomWithAA(0.5)
-// -> real anti-aliased text/edges on the panel. All draw coords are 2x.
-static const int METER_SS = 2;
-static const int CW = 466 * METER_SS;       // canvas width
-static const int CH = 466 * METER_SS;
-// panel-space constants for dump/QA unchanged (466x466)
 
 static int jit() { return (int)((millis() / 600000UL) % 5) - 2; }
 
@@ -193,17 +185,9 @@ static void fmtPct(float v, char *out, int n) {
 }
 
 bool M5LcdInit() {
-  canvasOk = canvas.createSprite(CW, CH) && panel.createSprite(466, 466);
+  canvasOk = canvas.createSprite(466, 466);
   if (!canvasOk) { M5.Display.fillScreen(TFT_RED); return false; }
   return true;
-}
-
-// flush: AA-downscale the 2x canvas onto the 466x466 panel sprite, then push
-static void flushPanel() {
-  panel.fillScreen(C_BG);
-  canvas.pushRotateZoomWithAA(&panel, 233, 233, 0, 0.5f, 0.5f);
-  panel.pushSprite(0, 0);
-  M5.Display.display();
 }
 
 void M5LcdSplash() {
@@ -222,7 +206,8 @@ void M5LcdSplash() {
                         ? WiFi.localIP().toString().c_str()
                         : "joining wifi...",
                     233, 320);
-  flushPanel();
+  canvas.pushSprite(0, 0);
+  M5.Display.display();
 }
 
 void M5LcdSetPage(uint8_t page) { g_page = page; g_pageAt = millis(); }
@@ -247,8 +232,8 @@ static void drawPageMeter(const MeterData &d) {
 
   // LEFT column: logo → model name (Font0, wraps ~8 chars at '-'/' ')
   // → requests (pulled up) → battery at BOTTOM-inside, centered.
-  canvas.drawBitmap((CX - 72*METER_SS) - (LOGO_W*METER_SS) / 2, (CY - 59*METER_SS) - (LOGO_H*METER_SS) / 2,
-                    ollama_logo_bits, LOGO_W * SS, LOGO_H * SS, C_INK, C_BG);
+  canvas.drawBitmap(CX - 72 - LOGO_W / 2, CY - 59 - LOGO_H / 2,
+                    ollama_logo_bits, LOGO_W, LOGO_H, C_INK, C_BG);
   char s[48];
   // model name: EXACTLY 2 lines, deterministic split at last break char
   // ('-' ':') that leaves line1 <= 8 chars; line2 = remainder (cap 10)
@@ -326,7 +311,8 @@ static void drawPageMeter(const MeterData &d) {
     leftText(rx, CY + 84, val, &fonts::FreeMono9pt7b, 1, C_FAINT);           // HARD line 2
   }
 
-  flushPanel();
+  canvas.pushSprite(0, 0);
+  M5.Display.display();
 }
 
 // ------------------------------------------------------------ page 2 sys ---
@@ -369,7 +355,8 @@ static void drawPageSys(const MeterData &d) {
   centerText(233, 366, "hold BtnA: reconfigure WiFi", &fonts::FreeSans9pt7b, 1, C_FAINT);
   centerText(233, 392, "BtnA: back to meter", &fonts::FreeSans9pt7b, 1, C_FAINT);
 
-  flushPanel();
+  canvas.pushSprite(0, 0);
+  M5.Display.display();
 }
 
 void M5LcdPane(uint8_t pane, const MeterData &d) {
@@ -412,19 +399,21 @@ void M5LcdConfigScreen(const char *apSsid, const char *apIp) {
   canvas.setTextColor(C_DIM, C_BG);
   canvas.drawString("3. Pick network + save", 244, 232);
   centerText(233, 388, "(hold BtnA at boot to reopen)", &fonts::FreeSans9pt7b, 1, C_FAINT);
-  flushPanel();
+  canvas.pushSprite(0, 0);
+  M5.Display.display();
 }
 
 void M5LcdMessage(const char *line1, const char *line2) {
   canvas.fillScreen(C_BG);
   centerText(233, 210, line1, &fonts::FreeSansBold12pt7b, 1, C_INK);
   if (line2) centerText(233, 250, line2, &fonts::FreeSans9pt7b, 1, C_DIM);
-  flushPanel();
+  canvas.pushSprite(0, 0);
+  M5.Display.display();
 }
 
 // framebuffer dump on serial command (host QA): "DUMP\n" -> raw RGB565 LE
 bool M5LcdDumpFramebuffer() {
-  uint16_t *fb = (uint16_t *)panel.getBuffer();
+  uint16_t *fb = (uint16_t *)canvas.getBuffer();
   if (!fb) return false;
   Serial.write("METER_FB_DUMP\n");
   const int total = 466 * 466;

@@ -77,8 +77,8 @@ cookie (local server stats keep working).
 
 **Option A — M5Burner (easiest):**
 1. Open M5Burner → **ESPTool**
-2. Write `ollama-meter.ino.merged.bin` at offset **`0x0`**
-3. dio / 80m / detect (the defaults)
+2. Grab [`ollama-meter.ino.merged.bin` from Releases](https://github.com/styles01/m5stack-ollama-meter/releases/latest)
+3. Write at offset **`0x0`** with dio / 80m / detect (the defaults)
 
 **Option B — esptool directly:**
 ```bash
