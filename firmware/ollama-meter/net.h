@@ -49,6 +49,8 @@ void netInit();
 bool netFetch(MeterData &d);
 bool companionResolve(char *outHost, int outLen);  // mDNS auto or NVS override
 int lastHttpCode();
+int lastFailKind();   // v1.1.1: 0=none, 1=resolve miss, 2=http fail
+int lastFailCode();   // v1.1.1: http code or -1
 
 // helpers shared with ui
 long isoToEpoch(const char *iso);              // "2026-09-07T00:00:00Z" -> epoch; 0 fail

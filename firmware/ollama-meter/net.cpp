@@ -132,6 +132,12 @@ float sessionTimeFrac(const MeterData &d) {
   return f;
 }
 
+// v1.1.1: last companion failure detail for the offline screen
+static int  g_lastFailKind = 0;   // 0=none, 1=resolve (mDNS/beacon miss), 2=http
+static int  g_lastFailCode = -1;  // http code, or -1 for resolve miss
+int lastFailKind() { return g_lastFailKind; }
+int lastFailCode() { return g_lastFailCode; }
+
 void netInit() {
   configTime(0, 0, "time.cloudflare.com", "time.google.com");  // UTC
 }
@@ -302,6 +308,7 @@ bool netFetch(MeterData &g) {
   static uint16_t port = COMPANION_PORT;
   if (!companionResolve(host, sizeof(host))) {
     g.failCount++;
+    g_lastFailKind = 1; g_lastFailCode = -1;   // v1.1.1: resolve miss
     if (g.failCount >= REBOOT_AFTER_FAILS) ESP.restart();
     return false;
   }
@@ -312,11 +319,13 @@ bool netFetch(MeterData &g) {
     int code = lastHttpCode();
     if (code != lastCode) { MLOG("fetch FAIL http=%d from %s:%u", code, host, port); lastCode = code; }
     g.failCount++;
+    g_lastFailKind = 2; g_lastFailCode = code; // v1.1.1: http failure
     if (g.failCount >= REBOOT_AFTER_FAILS) ESP.restart();
     return false;
   }
   MLOG("fetch OK (%u bytes)", (unsigned)strlen(buf));
   g.failCount = 0;
+  g_lastFailKind = 0;                          // v1.1.1: back online
   bool changed = true;
   if (g.valid && g.rawLen > 0 && strncmp(buf, g.raw, sizeof(buf)) == 0) {
     changed = false;

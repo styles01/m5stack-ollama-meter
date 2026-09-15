@@ -359,17 +359,73 @@ static void drawPageSys(const MeterData &d) {
   M5.Display.display();
 }
 
+// v1.1.1: explicit offline state — rings dimmed, honest status + live fail count.
+// Shows WHY (mDNS miss vs http code) and HOW LONG until the auto-retry reboot.
+static void drawPageOffline(const MeterData &d) {
+  canvas.fillScreen(C_BG);
+  char s[64];
+
+  // dimmed ring silhouettes so the face still reads as the meter
+  drawRing(R_WEEK_O, R_WEEK_I, 0, C_TRACK);
+  drawRing(R_SESS_O, R_SESS_I, 0, C_TRACK);
+
+  centerText(CX, CY - 92, "CAN'T REACH", &fonts::FreeSansBold18pt7b, 1, C_AMBER);
+  centerText(CX, CY - 58, "COMPANION", &fonts::FreeSansBold18pt7b, 1, C_AMBER);
+
+  extern int lastFailKind();
+  extern int lastFailCode();
+  int kind = lastFailKind(), code = lastFailCode();
+  if (kind == 2) {
+    if (code == -1)      snprintf(s, sizeof(s), "last: connection failed");
+    else if (code == -2) snprintf(s, sizeof(s), "last: bad URL/transport");
+    else                 snprintf(s, sizeof(s), "last: HTTP %d", code);
+  } else if (kind == 1) {
+    snprintf(s, sizeof(s), "last: not found (mDNS+beacon)");
+  } else {
+    snprintf(s, sizeof(s), "waiting for first poll...");
+  }
+  centerText(CX, CY - 8, s, &fonts::FreeMono9pt7b, 1, C_DIM);
+
+  snprintf(s, sizeof(s), "retrying  ·  fail #%d", d.failCount);
+  centerText(CX, CY + 28, s, &fonts::FreeMono9pt7b, 1, C_FAINT);
+
+  // companion hint (resolved host or "searching"), same info as SYS page
+  char host[64];
+  {
+    extern bool companionResolved(char *out, int n);
+    if (companionResolved(host, sizeof(host))) snprintf(s, sizeof(s), "companion: %s", host);
+    else                                       snprintf(s, sizeof(s), "companion: searching...");
+  }
+  centerText(CX, CY + 60, s, &fonts::FreeMono9pt7b, 1, C_FAINT);
+
+  centerText(CX, CY + 116, "hold BtnA: setup  ·  BtnA: sys",
+             &fonts::FreeSans9pt7b, 1, C_FAINT);
+
+  canvas.pushSprite(0, 0);
+  M5.Display.display();
+}
+
 void M5LcdPane(uint8_t pane, const MeterData &d) {
   (void)pane;
   if (!canvasOk) return;
   if (g_page == 1) drawPageSys(d);
-  else drawPageMeter(d);
+  else if (d.valid) drawPageMeter(d);
+  else drawPageOffline(d);   // v1.1.1: explicit offline state instead of stale splash
 }
 
-// tick: comet anim on meter page; page dots always
+// tick: comet anim on meter page; page dots always.
+// v1.1.1: while offline, repaint the offline state every 2s (live fail counter).
 void M5LcdTick(uint8_t pane, const MeterData &d) {
   (void)pane;
-  if (!canvasOk || !d.valid) return;
+  if (!canvasOk) return;
+  if (!d.valid) {
+    static uint32_t lastOfflinePaint = 0;
+    if (millis() - lastOfflinePaint >= 2000 && g_page == 0) {
+      lastOfflinePaint = millis();
+      drawPageOffline(d);
+    }
+    return;
+  }
   static float lastFrac = -1;
   float frac = sessionTimeFrac(d);
   if (g_page == 0 && fabsf(frac - lastFrac) > 0.0015f) {
